@@ -1,0 +1,142 @@
+<?php
+session_start();
+
+require_once "../modelos/Usuario.php";
+
+$usuario = new Usuario();
+
+header("Content-Type: application/json; charset=utf-8");
+
+$op = $_GET["op"] ?? "";
+
+if (!in_array($op, ["login", "sesion", "logout"], true)) {
+    require_once __DIR__ . "/seguridad.php";
+    exigirAdmin();
+}
+
+switch ($op) {
+
+    case "login":
+        global $conexion;
+
+        $login = trim($_POST["login"] ?? "");
+        $clave = $_POST["clave"] ?? "";
+
+        if ($login === "" || $clave === "") {
+            echo json_encode(["ok" => false, "mensaje" => "Ingresa tu usuario y contraseÃ±a"]);
+            break;
+        }
+
+        $stmt = $conexion->prepare(
+            "SELECT u.idusuario, u.idrol, u.nombre, u.login, u.clave,
+                    u.condicion, r.nombre AS perfil
+             FROM usuario u
+             INNER JOIN rol r ON u.idrol = r.idrol
+             WHERE u.login = ? LIMIT 1"
+        );
+
+        $stmt->bind_param("s", $login);
+        $stmt->execute();
+        $datos = $stmt->get_result()->fetch_assoc();
+
+        if (!$datos || (int)$datos["condicion"] !== 1 ||
+            !password_verify($clave, $datos["clave"])) {
+            echo json_encode(["ok" => false, "mensaje" => "Usuario o contraseÃ±a incorrectos"]);
+            break;
+        }
+
+        session_regenerate_id(true);
+
+        unset($datos["clave"], $datos["condicion"]);
+
+        $_SESSION["itventas_usuario"] = $datos;
+
+        echo json_encode([
+            "ok" => true,
+            "mensaje" => "Acceso correcto",
+            "usuario" => $datos
+        ]);
+        break;
+
+    case "sesion":
+        if (isset($_SESSION["itventas_usuario"])) {
+            echo json_encode([
+                "ok" => true,
+                "usuario" => $_SESSION["itventas_usuario"]
+            ]);
+        } else {
+            echo json_encode(["ok" => false]);
+        }
+        break;
+
+    case "logout":
+        $_SESSION = [];
+        session_destroy();
+        echo json_encode(["ok" => true, "mensaje" => "SesiÃ³n cerrada"]);
+        break;
+
+    case "roles":
+        $rspta = $usuario->roles();
+        $data = [];
+        while ($reg = $rspta->fetch_assoc()) {
+            $data[] = $reg;
+        }
+        echo json_encode(["data" => $data]);
+        break;
+
+    case "listar":
+        $rspta = $usuario->listar();
+        $data = [];
+        while ($reg = $rspta->fetch_assoc()) {
+            $data[] = $reg;
+        }
+        echo json_encode(["data" => $data]);
+        break;
+
+    case "mostrar":
+        $id = (int)($_GET["id"] ?? 0);
+        echo json_encode(["data" => $usuario->mostrar($id)]);
+        break;
+
+    case "registrar":
+        $mensaje = $usuario->registrar(
+            (int)($_POST["idrol"] ?? 0),
+            trim($_POST["nombre"] ?? ""),
+            trim($_POST["tipo_documento"] ?? ""),
+            trim($_POST["documento"] ?? ""),
+            trim($_POST["email"] ?? ""),
+            trim($_POST["login"] ?? ""),
+            $_POST["clave"] ?? ""
+        );
+        echo json_encode(["mensaje" => $mensaje]);
+        break;
+
+    case "editar":
+        $mensaje = $usuario->editar(
+            (int)($_POST["idusuario"] ?? 0),
+            (int)($_POST["idrol"] ?? 0),
+            trim($_POST["nombre"] ?? ""),
+            trim($_POST["tipo_documento"] ?? ""),
+            trim($_POST["documento"] ?? ""),
+            trim($_POST["email"] ?? ""),
+            trim($_POST["login"] ?? ""),
+            $_POST["clave"] ?? ""
+        );
+        echo json_encode(["mensaje" => $mensaje]);
+        break;
+
+    case "activar":
+    case "desactivar":
+        $id = (int)($_POST["idusuario"] ?? 0);
+        $estado = $op === "activar" ? 1 : 0;
+        echo json_encode([
+            "mensaje" => $usuario->cambiarEstado($id, $estado)
+        ]);
+        break;
+
+    default:
+        http_response_code(400);
+        echo json_encode(["error" => "OperaciÃ³n no vÃ¡lida"]);
+        break;
+}
+?>
